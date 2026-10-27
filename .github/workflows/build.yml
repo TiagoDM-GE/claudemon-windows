@@ -1,0 +1,49 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to attach the .exe files to a Release on tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Test
+        run: dotnet test tests/ClaudemonWin.Core.Tests -c Release
+
+      - name: Publish (small, needs .NET 8 Desktop Runtime)
+        run: dotnet publish src/ClaudemonWin -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish/small
+
+      - name: Publish (standalone, no runtime needed)
+        run: dotnet publish src/ClaudemonWin -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o publish/standalone
+
+      - name: Collect binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item publish/small/ClaudemonWin.exe dist/ClaudemonWin.exe
+          Copy-Item publish/standalone/ClaudemonWin.exe dist/ClaudemonWin-standalone.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClaudemonWin-win-x64
+          path: dist/*.exe
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.exe
+          generate_release_notes: true
